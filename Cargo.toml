@@ -1,0 +1,35 @@
+[package]
+name = "bitcoin_proxy"
+version = "0.1.0"
+authors = ["Alexey Karasev <karasev.alexey@gmail.com>"]
+
+[lib]
+name = "bitcoin_proxy_lib"
+path = "src/lib.rs"
+
+[dependencies]
+base64 = "0.9"
+clap = {version = "2", features = ["yaml"]}
+chrono = "0.4"
+config = "0.9"
+env_logger = "0.5"
+failure = "0.1"
+futures = "0.1"
+futures-cpupool = "0.1.7"
+gelf = { git = "https://github.com/StoriqaTeam/gelf-rust", rev = "b05956244f020bb4a62b859bd1025b6c699b2628" }
+http_router = "0.1"
+hyper = "0.12"
+hyper-tls = "0.3"
+lazy_static = "1.1.0"
+log = { version = "0.4", features = ["std", "serde"] }
+num = { version = "0.2", features = ["i128"] }
+regex = "1"
+sentry = "0.12"
+serde = "1"
+serde_derive = "1"
+serde_json = {version = "1", features = ["arbitrary_precision"]}
+serde_qs = "0.4"
+simplelog = "0.5.3"
+tokio = "0.1"
+tokio-core = "0.1.17"
+uuid = { version = "0.6", features = ["use_std", "v4", "serde"] }

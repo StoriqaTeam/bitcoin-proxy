@@ -1,0 +1,16 @@
+version: '3'
+services:
+  bitcoin-proxy:
+    build: .
+    image: bitcoin-proxy
+    command: ["bash", "-c", "rm tmp/pids/server.pid; bundle; bundle exec rails s"]
+    volumes:
+      - ..:/app
+      - bundle-cache:/usr/local/bundle
+    ports:
+      - 3000:3000
+
+networks:
+  default:
+    external:
+      name: payments
