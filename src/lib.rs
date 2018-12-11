@@ -1,9 +1,9 @@
 #![allow(proc_macro_derive_resolution_fallback)]
 
 extern crate chrono;
-extern crate futures;
-extern crate failure;
 extern crate env_logger;
+extern crate failure;
+extern crate futures;
 extern crate futures_cpupool;
 extern crate hyper;
 extern crate serde;
@@ -14,13 +14,13 @@ extern crate serde_qs;
 extern crate serde_derive;
 #[macro_use]
 extern crate log;
+extern crate base64;
 extern crate config as config_crate;
 extern crate gelf;
-extern crate simplelog;
-extern crate base64;
 extern crate hyper_tls;
 extern crate num;
 extern crate regex;
+extern crate simplelog;
 #[macro_use]
 extern crate sentry;
 extern crate tokio;
@@ -116,19 +116,26 @@ pub fn start_server() {
                                     q_n.quarantine = Quarantine::No;
                                 }
 
-                                //searching for first node not in quarantine
-                                let node = nodes_.iter().filter(|(_, n)| n.quarantine == Quarantine::No).nth(0);
+                                //searching for main node not in quarantine
+                                let node = nodes_
+                                    .iter()
+                                    .filter(|(_, n)| n.main && n.quarantine == Quarantine::No)
+                                    .nth(0)
+                                    .map(|(i, node)| (*i, node.clone()));
 
                                 //if all nodes are in quarantine - take first
-                                let (i, node) = node
-                                    .unwrap_or_else(|| nodes_.get(&0).map(|n| (&0usize, n)).expect("There is no nodes defined in config"));
+                                let (i, node) = node.unwrap_or_else(|| {
+                                    let n = nodes_.get_mut(&0).expect("There is no nodes defined in config");
+                                    n.main = true;
+                                    (0, n.clone())
+                                });
 
                                 let url = node.url.clone();
 
                                 let client =
                                     BitcoinClientImpl::new(client.clone(), node.url.clone(), node.user.clone(), node.password.clone());
 
-                                (client, url, *i)
+                                (client, url, i)
                             };
 
                             let nodes_clone3 = nodes_clone2.clone();
@@ -142,6 +149,7 @@ pub fn start_server() {
                                                 let mut nodes = nodes_clone3.lock().unwrap();
                                                 let n = nodes.get_mut(&i).expect("Can not find node to compare in btreemap");
                                                 n.quarantine = Quarantine::Yes(chrono::Utc::now().naive_utc());
+                                                n.main = false;
                                                 Either::A(
                                                     opsgenie_client
                                                         .notify(format!("Bitcoin node {} delay from blockchain exceeded limit.", url))

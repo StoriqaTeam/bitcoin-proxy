@@ -7,6 +7,7 @@ pub struct BitcoinNode {
     pub user: String,
     pub password: String,
     pub quarantine: Quarantine,
+    pub main: bool,
 }
 
 impl BitcoinNode {
@@ -16,6 +17,7 @@ impl BitcoinNode {
             user,
             password,
             quarantine: Quarantine::No,
+            main: false,
         }
     }
 }

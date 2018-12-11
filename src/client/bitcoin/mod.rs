@@ -3,7 +3,7 @@ mod responses;
 
 use std::sync::Arc;
 
-use hyper::{Body, Request};
+use hyper::{Body, Request, Response};
 
 use self::error::*;
 use self::responses::*;
@@ -16,6 +16,8 @@ use utils::read_body;
 pub trait BitcoinClient: Send + Sync + 'static {
     /// Get last block hash
     fn get_last_block(&self) -> Box<Future<Item = u64, Error = Error> + Send>;
+    /// Get last block hash
+    fn proxy_request(&self, params: &::serde_json::Value) -> Box<Future<Item = Response<Body>, Error = Error> + Send>;
 }
 
 #[derive(Clone)]
@@ -36,26 +38,32 @@ impl BitcoinClientImpl {
         }
     }
 
-    fn get_rpc_response<T>(&self, params: &::serde_json::Value) -> impl Future<Item = T, Error = Error> + Send
+    fn get_rpc_response(&self, params: &::serde_json::Value) -> Box<Future<Item = Response<Body>, Error = Error> + Send> {
+        let http_client = self.http_client.clone();
+        let basic = ::base64::encode(&format!("{}:{}", self.bitcoin_rpc_user, self.bitcoin_rpc_password));
+        let basic = format!("Basic {}", basic);
+        Box::new(
+            serde_json::to_string(params)
+                .map_err(ectx!(ErrorContext::Json, ErrorKind::Internal => params))
+                .and_then(|body| {
+                    Request::builder()
+                        .method("POST")
+                        .header("Authorization", basic)
+                        .uri(self.bitcoin_rpc_url.clone())
+                        .body(Body::from(body.clone()))
+                        .map_err(ectx!(ErrorSource::Hyper, ErrorKind::Internal => body))
+                })
+                .into_future()
+                .and_then(move |request| http_client.request(request).map_err(ectx!(ErrorKind::Internal))),
+        )
+    }
+
+    fn get_response<T>(&self, params: &::serde_json::Value) -> impl Future<Item = T, Error = Error> + Send
     where
         for<'a> T: Send + 'static + ::serde::Deserialize<'a>,
     {
-        let http_client = self.http_client.clone();
         let params_clone = params.clone();
-        let basic = ::base64::encode(&format!("{}:{}", self.bitcoin_rpc_user, self.bitcoin_rpc_password));
-        let basic = format!("Basic {}", basic);
-        serde_json::to_string(params)
-            .map_err(ectx!(ErrorContext::Json, ErrorKind::Internal => params))
-            .and_then(|body| {
-                Request::builder()
-                    .method("POST")
-                    .header("Authorization", basic)
-                    .uri(self.bitcoin_rpc_url.clone())
-                    .body(Body::from(body.clone()))
-                    .map_err(ectx!(ErrorSource::Hyper, ErrorKind::Internal => body))
-            })
-            .into_future()
-            .and_then(move |request| http_client.request(request).map_err(ectx!(ErrorKind::Internal)))
+        self.get_rpc_response(params)
             .and_then(|resp| read_body(resp.into_body()).map_err(ectx!(ErrorKind::Internal => params_clone)))
             .and_then(|bytes| {
                 let bytes_clone = bytes.clone();
@@ -71,7 +79,7 @@ impl BitcoinClientImpl {
             "method": "getbestblockhash",
             "params": []
         });
-        self.get_rpc_response::<RpcBestBlockResponse>(&params).map(|r| r.result)
+        self.get_response::<RpcBestBlockResponse>(&params).map(|r| r.result)
     }
 
     pub fn get_block_by_hash(&self, hash: String) -> impl Future<Item = Block, Error = Error> + Send {
@@ -81,18 +89,20 @@ impl BitcoinClientImpl {
             "method": "getblock",
             "params": [hash]
         });
-        self.get_rpc_response::<RpcBlockResponse>(&params).map(|r| r.result)
+        self.get_response::<RpcBlockResponse>(&params).map(|r| r.result)
     }
 }
 
 impl BitcoinClient for BitcoinClientImpl {
     fn get_last_block(&self) -> Box<Future<Item = u64, Error = Error> + Send> {
         let self_clone = self.clone();
-
         Box::new(
             self.get_best_block_hash()
                 .and_then(move |hash| self_clone.get_block_by_hash(hash))
                 .map(move |block| block.height),
         )
+    }
+    fn proxy_request(&self, body: &::serde_json::Value) -> Box<Future<Item = Response<Body>, Error = Error> + Send> {
+        Box::new(self.get_rpc_response(body))
     }
 }

@@ -10,10 +10,8 @@ use client::HttpClient;
 use config::Config;
 use models::*;
 
-mod fallback;
 mod proxy;
 
-pub use self::fallback::*;
 pub use self::proxy::*;
 
 pub type ControllerFuture = Box<Future<Item = Response<Body>, Error = Error> + Send>;
