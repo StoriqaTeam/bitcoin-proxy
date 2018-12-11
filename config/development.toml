@@ -6,12 +6,12 @@ port = 8000
 dns_threads = 4
 
 [[nodes]]
-bitcoin_rpc_urls = "http://localhost:18332"
+bitcoin_rpc_url = "http://localhost:18332"
 bitcoin_rpc_user = "xyz"
 bitcoin_rpc_password = "xyz"
 
 [[nodes]]
-bitcoin_rpc_urls = "http://localhost:18332"
+bitcoin_rpc_url = "http://localhost:18332"
 bitcoin_rpc_user = "xyz"
 bitcoin_rpc_password = "xyz"
 
@@ -20,7 +20,7 @@ size = 1
 
 [opsgenie]
 enabled = true
-api-key = "b9a4dd35-cbad-4324-ab76-0583ae538960"
+api_key = "b9a4dd35-cbad-4324-ab76-0583ae538960"
 url = "https://api.opsgenie.com/v2/alerts"
 team = "ops_team"
 
