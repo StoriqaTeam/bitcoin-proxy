@@ -116,19 +116,25 @@ pub fn start_server() {
                                     q_n.quarantine = Quarantine::No;
                                 }
 
-                                //searching for main node not in quarantine
-                                let node = nodes_
+                                let (i, node) = if let Some((i, node)) = nodes_
                                     .iter()
-                                    .filter(|(_, n)| n.main && n.quarantine == Quarantine::No)
+                                    .filter(|(_, n)| n.main && n.quarantine == Quarantine::No) //searching for main node not in quarantine
                                     .nth(0)
-                                    .map(|(i, node)| (*i, node.clone()));
-
-                                //if all nodes are in quarantine - take first
-                                let (i, node) = node.unwrap_or_else(|| {
+                                    .map(|(i, node)| (*i, node.clone()))
+                                {
+                                    (i, node)
+                                } else if let Some((i, node)) = nodes_
+                                    .iter()
+                                    .filter(|(_, n)| n.quarantine == Quarantine::No) //searching for first node not in quarantine
+                                    .nth(0)
+                                    .map(|(i, n)| (*i, n.clone()))
+                                {
+                                    (i, node)
+                                } else {
                                     let n = nodes_.get_mut(&0).expect("There is no nodes defined in config");
                                     n.main = true;
-                                    (0, n.clone())
-                                });
+                                    (0, n.clone()) //if all nodes are in quarantine - take first
+                                };
 
                                 let url = node.url.clone();
 
@@ -147,14 +153,20 @@ pub fn start_server() {
                                         Ok(bl_count) => Either::A({
                                             if count.checked_sub(bl_count).unwrap_or_else(|| u64::max_value()) > 1 {
                                                 let mut nodes = nodes_clone3.lock().unwrap();
-                                                let n = nodes.get_mut(&i).expect("Can not find node to compare in btreemap");
-                                                n.quarantine = Quarantine::Yes(chrono::Utc::now().naive_utc());
-                                                n.main = false;
-                                                Either::A(
-                                                    opsgenie_client
-                                                        .notify(format!("Bitcoin node {} delay from blockchain exceeded limit.", url))
-                                                        .map_err(|_| ()),
-                                                )
+                                                {
+                                                    let n = nodes.get_mut(&i).expect("Can not find node to compare in btreemap");
+                                                    n.quarantine = Quarantine::Yes(chrono::Utc::now().naive_utc());
+                                                    n.main = false;
+                                                }
+                                                Either::A(if nodes.values().filter(|v| v.quarantine == Quarantine::No).count() < 2 {
+                                                    Either::A(
+                                                        opsgenie_client
+                                                            .notify(format!("Bitcoin node {} delay from blockchain exceeded limit.", url))
+                                                            .map_err(|_| ()),
+                                                    )
+                                                } else {
+                                                    Either::B(future::ok(()))
+                                                })
                                             } else {
                                                 Either::B(future::ok(()))
                                             }
