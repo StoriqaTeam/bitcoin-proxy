@@ -1,0 +1,143 @@
+clone:
+  git:
+    image: plugins/git
+    pull: true
+    recursive: true
+
+pipeline:
+  restore-cache:
+    image: plugins/s3-cache:1
+    pull: true
+    secrets: [ aws_access_key_id, aws_secret_access_key ]
+    mount: deps
+    restore: true
+    when:
+      event:
+      - pull_request
+      - push
+      - tag
+
+###
+# Test PR
+###
+
+  test:
+    image: rust:1.31.0-stretch
+    environment:
+    - RUN_MODE=k8s
+    - RUST_BACKTRACE=1
+    - CARGO_HOME=deps
+    commands:
+    - rustup component add rustfmt-preview
+    - cargo fmt -- --check
+    - apt-get update && apt-get install -y ca-certificates wget gnupg2 clang
+    - update-ca-certificates
+    - cargo test
+    when:
+      event: pull_request
+
+###
+# Build and deploy to nightly / stage
+###
+
+  build:
+    image: rust:1.31.0-stretch
+    environment:
+    - CARGO_HOME=deps
+    commands:
+    - apt-get update && apt-get install -y clang
+    - cargo build
+    - mkdir migrations || true
+    when:
+      event: push
+  build:
+    image: rust:1.31.0-stretch
+    environment:
+    - CARGO_HOME=deps
+    commands:
+    - apt-get update && apt-get install -y clang
+    - cargo build --release --locked
+    - mkdir migrations || true
+    when:
+      event: tag
+  package:
+    group: package
+    image: plugins/docker
+    repo: storiqateam/payments-btcproxy
+    tags:
+    - ${DRONE_BRANCH//\//_}
+    - ${DRONE_BRANCH//\//_}${DRONE_BUILD_NUMBER}
+    secrets:
+    - docker_username
+    - docker_password
+    when:
+      event: push
+  package:
+    image: plugins/docker
+    repo: storiqateam/payments-btcproxy
+    build_args:
+    - env=release
+    tags:
+    - '${DRONE_TAG}'
+    - latest
+    secrets:
+    - docker_username
+    - docker_password
+    when:
+      event: tag
+  deploy2nightly:
+    image: jackthestripper/drone_setimage
+    namespace: default
+    kind: deployment
+    object: payments-btcproxy
+    img_names: storiqateam/payments-btcproxy
+    img_tags: ${DRONE_BRANCH//\//_}${DRONE_BUILD_NUMBER}
+    img_cnts: btcproxy
+    secrets:
+    - source: k8s_pay_nightly_ca
+      target: k8s_ca
+    - source: k8s_pay_nightly_user
+      target: k8s_user
+    - source: k8s_pay_nightly_token
+      target: k8s_token
+    - source: k8s_pay_nightly_addr
+      target: k8s_addr
+    when:
+      branch: master
+      event: push
+
+  deploy2prod:
+    image: appleboy/drone-ssh
+    host: jumpbox.pay.stq.cloud
+    command_timeout: 180
+    script: |
+      cd ~/payments-infra \
+      && git reset --hard \
+      && git fetch \
+      && git pull origin master \
+      && ansible-playbook \
+      -i ~/payments-infra/ansible/hosts-production.yml \
+      --tags btcproxy \
+      --extra-vars "pay_btcproxy_tag=${DRONE_TAG}" \
+      ~/payments-infra/ansible/docker.yml
+    secrets:
+    - ssh_username
+    - ssh_key
+    when:
+      event: deployment
+      environment: production
+
+###
+# Notifications and post deploy ops
+###
+
+  rebuild-cache:
+    group: package
+    image: plugins/s3-cache:1
+    pull: true
+    secrets: [ aws_access_key_id, aws_secret_access_key ]
+    mount: deps
+    rebuild: true
+    when:
+      event: push
+      branch: master
